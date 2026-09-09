@@ -1,0 +1,24 @@
+# Memory Log
+
+## Standing preference
+
+- After every completed task, update this log with a concise, well-formatted entry describing the work and its outcome.
+
+## Entries
+
+### 2026-09-09 — Project context recovered
+
+- Inspected the project documentation, source layout, active Git changes, and tests.
+- Confirmed SeaGlass AI is a local, compact decoder-only language-model project intended for Kaggle GPU experiments.
+- Confirmed the active uncommitted work adds a streaming dataset pipeline with filtering, deterministic splits, bounded train shuffling, and causal-token packing.
+- Ran the full test suite successfully: 21 tests passed.
+
+### 2026-09-09 — Git progress reviewed
+
+- Confirmed `master` has three local commits; the latest adds the dataset and persona planning specifications.
+- Confirmed no Git remote is configured.
+- Identified uncommitted dataset-pipeline implementation and tests, plus the project log; the tracked diff has no whitespace errors.
+
+### 2026-09-09 — Dataset pipeline saved
+
+- Saved the current dataset-pipeline implementation, its tests, documentation, and this log to Git as one cohesive project checkpoint.

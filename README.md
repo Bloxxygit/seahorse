@@ -39,6 +39,40 @@ invoke `Trainer.fit()` for full runs on a local Chromebook. A future Kaggle
 entrypoint can construct `SeaGlassTransformer`, prepare an iterable of batches,
 and explicitly call `Trainer.fit()` there.
 
+## Dataset pipeline
+
+The dataset package streams local JSONL or blank-line-delimited plain-text
+documents; it never loads an entire corpus into RAM. JSONL records require a
+`text` field and may include `id`, `split`, and arbitrary metadata. Future
+corpus providers—including separately curated Roblox technical and general
+knowledge sources—only need to yield `SourceDocument` objects, so the training
+loop remains unchanged.
+
+The pipeline filters empty, duplicate, malformed, and basic low-quality
+documents; accepts custom filtering hooks; assigns deterministic train and
+validation splits; performs bounded-buffer deterministic train shuffling; and
+adds `<bos>`/`<eos>` around every document before packing causal 512-token
+sequences. It yields `input_ids`/next-token `labels` ready for `Trainer`.
+
+Example Kaggle notebook wiring (after providing approved local Kaggle input
+files and a trained SeaGlass tokenizer):
+
+```python
+from torch.utils.data import DataLoader
+from dataset import DatasetConfig, JsonlDocumentSource, PackedSequenceDataset, build_sequence_pipeline
+from tokenizer import ByteLevelBPETokenizer
+
+tokenizer = ByteLevelBPETokenizer.load("/kaggle/input/seaglass/tokenizer.json")
+source = JsonlDocumentSource("/kaggle/input/approved-corpus/documents.jsonl")
+config = DatasetConfig(sequence_length=512, seed=17)
+
+def train_sequences():
+    return build_sequence_pipeline(source, tokenizer, split="train", config=config)
+
+loader = DataLoader(PackedSequenceDataset(train_sequences), batch_size=8)
+# Pass `loader` to Trainer.fit(...) only in the Kaggle training job.
+```
+
 ## Tokenizer
 
 SeaGlass includes a dependency-free byte-level BPE tokenizer. It learns merge
