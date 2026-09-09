@@ -13,7 +13,7 @@ class Tokenizer(ABC):
 
 
 class CharacterTokenizer(Tokenizer):
-    """UTF-8-byte tokenizer; replace with a learned tokenizer later."""
+    """UTF-8-byte fallback retained for the initial application sanity check."""
 
     def encode(self, text: str) -> list[int]:
         return list(text.encode("utf-8"))

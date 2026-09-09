@@ -1,5 +1,5 @@
-"""Training abstractions."""
+"""Kaggle-oriented PyTorch training utilities."""
 
-from .loop import TrainingLoop
+from .loop import TrainMetrics, Trainer, TrainingLoop, build_adamw
 
-__all__ = ["TrainingLoop"]
+__all__ = ["TrainMetrics", "Trainer", "TrainingLoop", "build_adamw"]

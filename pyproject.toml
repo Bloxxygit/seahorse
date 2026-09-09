@@ -3,7 +3,7 @@ name = "seaglass-ai"
 version = "0.1.0"
 description = "Minimal SeaGlass AI project scaffold"
 requires-python = ">=3.10"
-dependencies = []
+dependencies = ["torch>=2.0"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
