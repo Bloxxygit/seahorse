@@ -58,6 +58,24 @@ class TrainerTests(unittest.TestCase):
         self.assertEqual(trainer.global_step, 1)
         self.assertFalse(trainer.train_batch(self.batch).optimizer_step)
 
+    def test_checkpoint_round_trip_restores_training_state(self) -> None:
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "checkpoint.pt"
+            self.trainer.train_batch(self.batch)
+            self.trainer.save_checkpoint(path, data_state={"sequence": 3})
+            restored = Trainer(self.model, self.trainer.config, device="cpu")
+            state = restored.load_checkpoint(path)
+        self.assertEqual(restored.global_step, 1)
+        self.assertEqual(state, {"sequence": 3})
+
+    def test_validation_returns_finite_mean_loss(self) -> None:
+        metrics = self.trainer.validate([self.batch])
+        self.assertGreater(metrics.loss, 0.0)
+        self.assertEqual(metrics.batches, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

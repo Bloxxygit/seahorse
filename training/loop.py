@@ -10,6 +10,8 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from contextlib import nullcontext
 from dataclasses import dataclass
+import json
+from pathlib import Path
 
 import torch
 from torch import Tensor, nn
@@ -27,6 +29,13 @@ class TrainMetrics:
 
     loss: float
     optimizer_step: bool
+    global_step: int
+
+
+@dataclass(frozen=True)
+class ValidationMetrics:
+    loss: float
+    batches: int
     global_step: int
 
 
@@ -90,6 +99,15 @@ class Trainer:
         self.optimizer.zero_grad(set_to_none=True)
         self.global_step += 1
 
+    def _loss_for_batch(self, batch: Batch) -> Tensor:
+        input_ids, labels = self._move_batch(batch)
+        logits = self.model(input_ids)
+        return F.cross_entropy(
+            logits.flatten(end_dim=-2),
+            labels.flatten(),
+            ignore_index=self.config.ignore_index,
+        )
+
     def train_batch(self, batch: Batch) -> TrainMetrics:
         """Process one micro-batch and step when accumulation is complete."""
         self.model.train()
@@ -112,6 +130,55 @@ class Trainer:
             self._pending_micro_batches = 0
         return TrainMetrics(loss=loss.detach().item(), optimizer_step=optimizer_step, global_step=self.global_step)
 
+    @torch.no_grad()
+    def validate(self, batches: Iterable[Batch]) -> ValidationMetrics:
+        """Evaluate mean next-token loss without changing optimizer state."""
+        was_training = self.model.training
+        self.model.eval()
+        losses: list[float] = []
+        for batch in batches:
+            losses.append(float(self._loss_for_batch(batch).item()))
+        if was_training:
+            self.model.train()
+        if not losses:
+            raise ValueError("Validation requires at least one batch.")
+        return ValidationMetrics(sum(losses) / len(losses), len(losses), self.global_step)
+
+    def save_checkpoint(self, path: str | Path, *, data_state: Mapping[str, object] | None = None) -> None:
+        """Save all state needed to resume a deterministic training run."""
+        destination = Path(path)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "format_version": 1,
+            "model": self.model.state_dict(),
+            "optimizer": self.optimizer.state_dict(),
+            "scaler": self.scaler.state_dict(),
+            "global_step": self.global_step,
+            "pending_micro_batches": self._pending_micro_batches,
+            "training_config": self.config.__dict__,
+            "rng_state": torch.get_rng_state(),
+            "cuda_rng_state": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None,
+            "data_state": dict(data_state or {}),
+        }
+        torch.save(payload, destination)
+
+    def load_checkpoint(self, path: str | Path) -> dict[str, object]:
+        """Restore trainer state and return the checkpoint's data-resume state."""
+        payload = torch.load(path, map_location=self.device, weights_only=False)
+        if payload.get("format_version") != 1:
+            raise ValueError("Unsupported trainer checkpoint format.")
+        if payload.get("training_config") != self.config.__dict__:
+            raise ValueError("Checkpoint training configuration does not match the trainer.")
+        self.model.load_state_dict(payload["model"])
+        self.optimizer.load_state_dict(payload["optimizer"])
+        self.scaler.load_state_dict(payload["scaler"])
+        self.global_step = int(payload["global_step"])
+        self._pending_micro_batches = int(payload["pending_micro_batches"])
+        torch.set_rng_state(payload["rng_state"])
+        if torch.cuda.is_available() and payload.get("cuda_rng_state") is not None:
+            torch.cuda.set_rng_state_all(payload["cuda_rng_state"])
+        return dict(payload.get("data_state", {}))
+
     def finish_accumulation(self) -> bool:
         """Apply a final update if an epoch ends mid-accumulation."""
         if self._pending_micro_batches == 0:
@@ -120,15 +187,43 @@ class Trainer:
         self._pending_micro_batches = 0
         return True
 
-    def fit(self, batches: Iterable[Batch], max_optimizer_steps: int | None = None) -> list[TrainMetrics]:
+    def fit(
+        self,
+        batches: Iterable[Batch],
+        max_optimizer_steps: int | None = None,
+        *,
+        validation_batches: Iterable[Batch] | None = None,
+        checkpoint_dir: str | Path | None = None,
+        checkpoint_interval: int | None = None,
+        validation_interval: int | None = None,
+        log_path: str | Path | None = None,
+    ) -> list[TrainMetrics]:
         """Run the configured epochs when explicitly invoked by a Kaggle job."""
         if max_optimizer_steps is not None and max_optimizer_steps < 1:
             raise ValueError("max_optimizer_steps must be positive when supplied.")
+        if checkpoint_interval is not None and checkpoint_interval < 1:
+            raise ValueError("checkpoint_interval must be positive when supplied.")
+        if validation_interval is not None and validation_interval < 1:
+            raise ValueError("validation_interval must be positive when supplied.")
+        if (checkpoint_interval or validation_interval) and validation_batches is None and validation_interval:
+            raise ValueError("validation_batches are required when validation is enabled.")
+        if log_path is not None:
+            Path(log_path).parent.mkdir(parents=True, exist_ok=True)
         history: list[TrainMetrics] = []
         for _ in range(self.config.epochs):
             for batch in batches:
                 metrics = self.train_batch(batch)
                 history.append(metrics)
+                if log_path is not None:
+                    with Path(log_path).open("a", encoding="utf-8") as handle:
+                        handle.write(json.dumps({"type": "train", **metrics.__dict__}) + "\n")
+                if validation_interval and metrics.optimizer_step and self.global_step % validation_interval == 0:
+                    validation = self.validate(validation_batches)  # type: ignore[arg-type]
+                    if log_path is not None:
+                        with Path(log_path).open("a", encoding="utf-8") as handle:
+                            handle.write(json.dumps({"type": "validation", **validation.__dict__}) + "\n")
+                if checkpoint_interval and metrics.optimizer_step and self.global_step % checkpoint_interval == 0:
+                    self.save_checkpoint(Path(checkpoint_dir or "checkpoints") / f"step-{self.global_step}.pt")
                 if max_optimizer_steps is not None and self.global_step >= max_optimizer_steps:
                     return history
             if self.finish_accumulation() and history:

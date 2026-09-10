@@ -12,6 +12,8 @@ from dataset import (
     PlainTextDocumentSource,
     SourceDocument,
     filter_documents,
+    ManifestConfig,
+    write_corpus_manifest,
 )
 from dataset.pipeline import pack_documents, select_split
 from tokenizer import ByteLevelBPETokenizer
@@ -79,6 +81,23 @@ class DatasetPipelineTests(unittest.TestCase):
         iterator = pack_documents(provider, self.tokenizer, DatasetConfig(sequence_length=4))
         next(iterator)
         self.assertEqual(provider.emitted, 2)
+
+    def test_manifest_records_rights_and_filter_counts(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest = write_corpus_manifest(
+                [
+                    SourceDocument("good", "Useful technical explanation."),
+                    SourceDocument("duplicate", "Useful technical explanation."),
+                    SourceDocument("empty", " "),
+                ],
+                root / "documents.jsonl",
+                root / "manifest.json",
+                ManifestConfig("source-1", "general", "CC0-1.0", "https://example.test/license", "2026-09-09"),
+            )
+        self.assertEqual(manifest["accepted_documents"], 1)
+        self.assertEqual(manifest["rejections"]["duplicates"], 1)
+        self.assertEqual(manifest["rejections"]["quality"], 1)
 
 
 if __name__ == "__main__":

@@ -19,6 +19,15 @@ class FilterConfig:
     deduplicate: bool = True
 
 
+@dataclass
+class FilterStats:
+    input_documents: int = 0
+    rejected_quality: int = 0
+    rejected_hooks: int = 0
+    rejected_duplicates: int = 0
+    accepted_documents: int = 0
+
+
 def basic_quality_filter(document: SourceDocument, config: FilterConfig) -> bool:
     """Reject empty/short text and near-single-character low-quality content."""
     stripped = document.text.strip()
@@ -32,6 +41,7 @@ def filter_documents(
     documents: Iterable[SourceDocument],
     config: FilterConfig | None = None,
     hooks: Sequence[DocumentHook] = (),
+    stats: FilterStats | None = None,
 ) -> Iterator[SourceDocument]:
     """Yield quality-approved documents one at a time.
 
@@ -43,11 +53,23 @@ def filter_documents(
     config = config or FilterConfig()
     seen: set[bytes] = set()
     for document in documents:
-        if not basic_quality_filter(document, config) or not all(hook(document) for hook in hooks):
+        if stats is not None:
+            stats.input_documents += 1
+        if not basic_quality_filter(document, config):
+            if stats is not None:
+                stats.rejected_quality += 1
+            continue
+        if not all(hook(document) for hook in hooks):
+            if stats is not None:
+                stats.rejected_hooks += 1
             continue
         fingerprint = hashlib.blake2b(document.text.strip().encode("utf-8"), digest_size=16).digest()
         if config.deduplicate and fingerprint in seen:
+            if stats is not None:
+                stats.rejected_duplicates += 1
             continue
         if config.deduplicate:
             seen.add(fingerprint)
+        if stats is not None:
+            stats.accepted_documents += 1
         yield document

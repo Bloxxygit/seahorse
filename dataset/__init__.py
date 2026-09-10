@@ -2,8 +2,9 @@
 
 from .loader import Example, DatasetLoader
 from .documents import DocumentProvider, JsonlDocumentSource, PlainTextDocumentSource, SourceDocument
-from .filters import DocumentHook, FilterConfig, filter_documents
+from .filters import DocumentHook, FilterConfig, FilterStats, filter_documents
 from .pipeline import DatasetConfig, PackedSequence, PackedSequenceDataset, build_sequence_pipeline
+from .manifest import ALLOWED_LICENSES, ManifestConfig, write_corpus_manifest
 
 __all__ = [
     "DatasetConfig",
@@ -12,6 +13,7 @@ __all__ = [
     "DocumentProvider",
     "Example",
     "FilterConfig",
+    "FilterStats",
     "JsonlDocumentSource",
     "PackedSequence",
     "PackedSequenceDataset",
@@ -19,4 +21,7 @@ __all__ = [
     "SourceDocument",
     "build_sequence_pipeline",
     "filter_documents",
+    "ALLOWED_LICENSES",
+    "ManifestConfig",
+    "write_corpus_manifest",
 ]
